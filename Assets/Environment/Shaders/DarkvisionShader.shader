@@ -74,7 +74,7 @@ Shader "Custom/DarkvisionShader"
             // fixed4 _Color;
 
             #define _DarkvisionRange        10.0
-            #define _DimLightThreshold      0.1
+            #define _DimLightThreshold      0.05
             #define _BrightLightThreshold   0.5
 
             // half4 LightingSimpleLambert (SurfaceOutputDarkvision s, half3 lightDir, half atten) {
@@ -128,6 +128,20 @@ Shader "Custom/DarkvisionShader"
             //     o.Distance = distance(IN.worldPos, _WorldSpaceCameraPos.xyz);
             // }
 
+            static half4x4 Rgb2Yuv = half4x4(
+                    0.2126, 0.7152, 0.0722, 0,
+                    -0.09991, -0.33609, 0.436, 0, 
+                    0.615, -0.55861, -0.05639, 0, 
+                    0, 0, 0, 1
+                );
+
+            static half4x4 Yuv2Rgb = half4x4(
+                1, 0, 1.28033, 0,
+                1, -0.21482, -0.38059, 0,
+                1, 2.12798, 0, 0,
+                0, 0, 0, 1
+            );
+
             struct v2f
             {
                 float2 uv : TEXCOORD0;
@@ -150,25 +164,33 @@ Shader "Custom/DarkvisionShader"
             } 
 
             fixed4 frag (v2f i) : SV_Target {
-                fixed4 c = tex2D(_MainTex, i.uv)*_Color;
+                fixed4 original = tex2D(_MainTex, i.uv)*_Color;
 
-                static half4x4 Rgb2Yuv = half4x4(
-                    0.2126, 0.7152, 0.0722, 0,
-                    -0.09991, -0.33609, 0.436, 0, 
-                    0.615, -0.55861, -0.05639, 0, 
-                    0, 0, 0, 1
-                );
+                fixed4 c = original * i.diff;
 
-                static half4x4 Yuv2Rgb = half4x4(
-                    1, 0, 1.28033, 0,
-                    1, -0.21482, -0.38059, 0,
-                    1, 2.12798, 0, 0,
-                    0, 0, 0, 1
-                );
+                fixed4 yuv = mul(Rgb2Yuv, c);
+                fixed4 originalYuv = mul(Rgb2Yuv, original);
 
-                i.diff = (_DarkvisionRange - i.vertex.a) / _DarkvisionRange;
+                
 
-                c *= i.diff;
+                fixed distance = (_DarkvisionRange - i.vertex.a) / _DarkvisionRange;
+
+                // c = distance;
+
+                if (distance > 0) {
+                    if (yuv.x < _DimLightThreshold) {
+                        yuv.x = originalYuv.x*_DimLightThreshold;
+                        yuv.y = 0; //originalYuv.y;
+                        yuv.z = 0; //originalYuv.z;
+                    }
+                    else if (yuv.x < _BrightLightThreshold) {
+                        yuv.x = originalYuv.x*_BrightLightThreshold;
+                        yuv.y = originalYuv.y*_BrightLightThreshold;
+                        yuv.z = originalYuv.z*_BrightLightThreshold;
+                    }
+
+                    c = mul(Yuv2Rgb, yuv);
+                }
 
                 return c;
             }
